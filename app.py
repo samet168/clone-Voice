@@ -243,7 +243,8 @@ class VoxCPMDemo:
         logger.info(f"Loading model: {self._model_id}")
         self.voxcpm_model = voxcpm.VoxCPM.from_pretrained(
             self._model_id,
-            optimize=self.optimize,
+            optimize=False,
+            load_denoiser=False,
             device=self.device,
         )
         logger.info("Model loaded successfully.")
@@ -265,6 +266,7 @@ class VoxCPMDemo:
     def prompt_wav_recognition(self, prompt_wav: Optional[str]) -> str:
         if prompt_wav is None:
             return ""
+        prompt_wav = self._ensure_clean_audio_wav(prompt_wav)
         res = self.get_or_load_asr_model().generate(
             input=prompt_wav,
             language="auto",
@@ -298,6 +300,29 @@ class VoxCPMDemo:
             generate_kwargs["prompt_text"] = prompt_text_clean
         return generate_kwargs
 
+    @staticmethod
+    def _ensure_clean_audio_wav(audio_path: Optional[str]) -> Optional[str]:
+        if not audio_path or not os.path.isfile(audio_path):
+            return audio_path
+        try:
+            import soundfile as sf
+            with sf.SoundFile(audio_path) as _:
+                return audio_path
+        except Exception:
+            pass
+        try:
+            import subprocess, tempfile
+            ffmpeg_bin = os.path.join(os.path.dirname(sys.executable), "ffmpeg.exe")
+            if not os.path.isfile(ffmpeg_bin):
+                ffmpeg_bin = "ffmpeg"
+            out_wav = os.path.join(tempfile.gettempdir(), f"voxcpm_converted_{os.path.basename(audio_path)}.wav")
+            subprocess.run([ffmpeg_bin, "-y", "-i", audio_path, "-ac", "1", "-ar", "16000", out_wav], check=True, capture_output=True)
+            logger.info(f"Converted unsupported/mismatched audio {audio_path} -> {out_wav}")
+            return out_wav
+        except Exception as e:
+            logger.warning(f"Audio conversion fallback failed: {e}")
+            return audio_path
+
     def generate_tts_audio(
         self,
         text_input: str,
@@ -322,7 +347,7 @@ class VoxCPMDemo:
         control = re.sub(r"[()（）]", "", control).strip()
         final_text = f"({control}){text}" if control else text
 
-        audio_path = reference_wav_path_input if reference_wav_path_input else None
+        audio_path = self._ensure_clean_audio_wav(reference_wav_path_input) if reference_wav_path_input else None
         prompt_text_clean = (prompt_text or "").strip() or None
 
         if audio_path and prompt_text_clean:
@@ -580,7 +605,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--model-id",
         type=str,
-        default="openbmb/VoxCPM2",
+        default=r"C:\Users\USER\.cache\huggingface\hub\models--openbmb--VoxCPM2\snapshots\32279effe8c19989596f05d353d1447f51d9e915",
         help="Local path or HuggingFace repo ID (default: openbmb/VoxCPM2)",
     )
     parser.add_argument("--port", type=int, default=8808, help="Server port")

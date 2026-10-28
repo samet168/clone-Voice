@@ -283,6 +283,7 @@ class VoxCPM2Model(nn.Module):
             if self.device != "cuda":
                 raise ValueError("VoxCPMModel can only be optimized on CUDA device")
             try:
+                # pyrefly: ignore[missing-import]
                 import triton  # noqa: F401
             except ImportError:
                 raise ValueError("triton is not installed")
@@ -414,7 +415,28 @@ class VoxCPM2Model(nn.Module):
         Returns:
             audio_feat: (T, P, D) tensor of latent patches.
         """
-        audio, _ = librosa.load(wav_path, sr=self._encode_sample_rate, mono=True)
+        try:
+            audio, _ = librosa.load(wav_path, sr=self._encode_sample_rate, mono=True)
+        except Exception as e:
+            import subprocess
+            ffmpeg_bin = os.path.join(os.path.dirname(sys.executable), "ffmpeg.exe")
+            if not os.path.isfile(ffmpeg_bin):
+                ffmpeg_bin = "ffmpeg"
+            cmd = [
+                ffmpeg_bin,
+                "-y",
+                "-i",
+                wav_path,
+                "-f",
+                "f32le",
+                "-ac",
+                "1",
+                "-ar",
+                str(self._encode_sample_rate),
+                "-",
+            ]
+            proc = subprocess.run(cmd, capture_output=True, check=True)
+            audio = np.frombuffer(proc.stdout, dtype=np.float32)
         audio = torch.from_numpy(audio).unsqueeze(0)
         if trim_silence_vad:
             audio = _trim_audio_silence_vad(audio, self._encode_sample_rate, max_silence_ms=200.0)

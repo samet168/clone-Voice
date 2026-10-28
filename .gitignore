@@ -11,3 +11,5 @@ models/
 data/
 lora/
 output/
+test_error.txt
+test_*.wav
